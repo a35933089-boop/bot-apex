@@ -64,6 +64,8 @@ WAITING_FOR_SUPPORT_MESSAGE = 3
 WAITING_FOR_TICKET_SELECTION = 4
 WAITING_FOR_RATING = 5
 WAITING_FOR_ADMIN_REPLY = 6
+WAITING_FOR_BUG_REPORT = 7
+WAITING_FOR_BUG_PHOTO = 8
 
 # ---------------------------------------------------------------------------
 # Translations
@@ -72,6 +74,13 @@ T = {
     "fa": {
         "start": "🎮 GLADIATOR GAMES",
         "register": "📝 ثبت درخواست", "track": "🔎 پیگیری درخواست",
+        "bug_report": "🐞 گزارش باگ یا پیشنهاد",
+        "socials": "🌐 شبکه‌های اجتماعی APEX",
+        "socials_text": "جایی برای رشد واقعی، نه انگیزه‌های توخالی.\n\nFind your path. Build yourself.\n\nAPEX by GLADIATOR\n\n🌐 سایت: apex-app.ir\n▶️ YouTube: @Apex_app_ir\n📸 Instagram: @apex_app_ir\n🎧 پشتیبانی سایت: @GladiatorHelpBot",
+        "bug_prompt": "🐞 گزارش باگ یا پیشنهاد\n\nلطفاً مشکل یا پیشنهادت را با جزئیات بنویس. در پیام بعدی می‌توانی تصویر/اسکرین‌شات بفرستی یا گزارش را بدون تصویر ثبت کنی.",
+        "bug_photo_prompt": "🖼 اگر تصویر یا اسکرین‌شات داری، همین حالا ارسال کن.\nاگر تصویر نداری، روی «ثبت بدون تصویر» بزن.",
+        "bug_saved": "✅ گزارش تو ثبت شد.\n🎫 شماره پیگیری: {code}\nمدیریت گزارش را بررسی می‌کند.",
+        "bug_admin_tag": "#Bug_Report",
         "my_tickets": "📂 درخواست‌های من", "my_profile": "👤 پروفایل من",
         "faq": "❓ سؤالات متداول", "rate": "⭐ امتیازدهی به سایت",
         "language": "🌐 English", "support": "🎧 ارتباط با پشتیبان",
@@ -122,6 +131,13 @@ T = {
     "en": {
         "start": "🎮 GLADIATOR GAMES",
         "register": "📝 Submit a request", "track": "🔎 Track a request",
+        "bug_report": "🐞 Report a bug or suggestion",
+        "socials": "🌐 APEX social media",
+        "socials_text": "A place for real growth, not empty motivation.\n\nFind your path. Build yourself.\n\nAPEX by GLADIATOR\n\n🌐 Website: apex-app.ir\n▶️ YouTube: @Apex_app_ir\n📸 Instagram: @apex_app_ir\n🎧 Website support: @GladiatorHelpBot",
+        "bug_prompt": "🐞 Report a bug or suggestion\n\nPlease describe the problem or suggestion in detail. In the next message, you can attach a screenshot or submit without an image.",
+        "bug_photo_prompt": "🖼 If you have an image or screenshot, send it now.\nIf not, tap “Submit without image”.",
+        "bug_saved": "✅ Your report has been submitted.\n🎫 Tracking code: {code}\nThe team will review it.",
+        "bug_admin_tag": "#Bug_Report",
         "my_tickets": "📂 My requests", "my_profile": "👤 My profile",
         "faq": "❓ FAQs", "rate": "⭐ Rate the website", "language": "🌐 فارسی",
         "support": "🎧 Contact support", "cancel": "❌ Cancel operation",
@@ -165,7 +181,7 @@ T = {
     },
 }
 
-MENU_KEYS = ("register", "track", "my_tickets", "my_profile", "faq", "rate", "language", "support", "cancel", "home", "back", "menu_mode", "admin_menu")
+MENU_KEYS = ("register", "track", "bug_report", "socials", "my_tickets", "my_profile", "faq", "rate", "language", "support", "cancel", "home", "back", "menu_mode", "admin_menu")
 
 
 def tr(lang: str, key: str, **kwargs) -> str:
@@ -226,6 +242,7 @@ def init_database():
             "category": "TEXT NOT NULL DEFAULT 'General'", "message": "TEXT NOT NULL DEFAULT ''",
             "status": "TEXT NOT NULL DEFAULT 'open'", "admin_reply": "TEXT",
             "created_at": "TEXT NOT NULL DEFAULT ''", "updated_at": "TEXT NOT NULL DEFAULT ''",
+            "image_file_id": "TEXT",
         }
         for column, definition in migrations.items():
             if column not in ticket_columns:
@@ -285,14 +302,14 @@ def set_language(user_id: int, language: str):
         conn.execute("UPDATE users SET language=?, updated_at=? WHERE user_id=?", (language, now_utc(), user_id))
 
 
-def create_ticket(user, category: str, message: str) -> str:
+def create_ticket(user, category: str, message: str, image_file_id: Optional[str] = None) -> str:
     now = now_utc()
     with get_connection() as conn:
         code = secrets.token_hex(4).upper()
         while conn.execute("SELECT 1 FROM tickets WHERE ticket_code=?", (code,)).fetchone():
             code = secrets.token_hex(4).upper()
-        conn.execute("INSERT INTO tickets(ticket_code,user_id,username,full_name,category,message,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'open',?,?)",
-                     (code, user.id, user.username, user.full_name, category, message, now, now))
+        conn.execute("INSERT INTO tickets(ticket_code,user_id,username,full_name,category,message,status,created_at,updated_at,image_file_id) VALUES (?,?,?,?,?,? ,'open',?,?,?)",
+                     (code, user.id, user.username, user.full_name, category, message, now, now, image_file_id))
         conn.execute("INSERT INTO ticket_messages(ticket_code,sender_type,sender_id,message,created_at) VALUES (?,'user',?,?,?)", (code, user.id, message, now))
     return code
 
@@ -353,6 +370,8 @@ def keyboard_main(lang: str, admin: bool = False) -> ReplyKeyboardMarkup:
             [tr(lang, "my_tickets"), tr(lang, "my_profile")],
             [tr(lang, "faq"), tr(lang, "rate")],
             [tr(lang, "support")],
+            [tr(lang, "bug_report")],
+            [tr(lang, "socials")],
             [tr(lang, "menu_mode"), tr(lang, "language")],
         ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
@@ -375,6 +394,8 @@ def main_inline_keyboard(lang: str, admin: bool = False) -> InlineKeyboardMarkup
         [InlineKeyboardButton(tr(lang, "my_tickets"), callback_data="user:tickets"), InlineKeyboardButton(tr(lang, "my_profile"), callback_data="user:profile")],
         [InlineKeyboardButton(tr(lang, "faq"), callback_data="user:faq"), InlineKeyboardButton(tr(lang, "rate"), callback_data="user:rate")],
         [InlineKeyboardButton(tr(lang, "support"), callback_data="user:support")],
+        [InlineKeyboardButton(tr(lang, "bug_report"), callback_data="user:bug_report")],
+        [InlineKeyboardButton(tr(lang, "socials"), callback_data="user:socials")],
         [InlineKeyboardButton(tr(lang, "menu_mode"), callback_data="user:mode"), InlineKeyboardButton(tr(lang, "language"), callback_data="user:language")],
     ]
     return InlineKeyboardMarkup(rows)
@@ -527,6 +548,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = await ensure_user(update) if user else "fa"
     context.user_data.pop("pending_admin_ticket", None)
     context.user_data.pop("pending_user_action", None)
+    context.user_data.pop("bug_report_text", None)
     await send_home(update, context, lang)
     return ConversationHandler.END
 
@@ -545,6 +567,96 @@ async def show_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE, ticket
     markup = main_inline_keyboard(lang, is_admin(update.effective_user.id)) if get_menu_mode(update.effective_user.id) == "inline" else keyboard_main(lang, is_admin(update.effective_user.id))
     sent = await send_screen(update, context, body[:3900], reply_markup=markup)
     await remember_screen(context, sent)
+
+
+# ---------------------------------------------------------------------------
+# Bug report / feedback flow: description first, optional screenshot second
+# ---------------------------------------------------------------------------
+async def begin_bug_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = await ensure_user(update)
+    context.user_data.pop("bug_report_text", None)
+    prompt = tr(lang, "bug_prompt")
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, "cancel"), callback_data="user:cancel_action")]])
+    sent = await send_screen(update, context, prompt, reply_markup=markup)
+    await remember_screen(context, sent)
+    return WAITING_FOR_BUG_REPORT
+
+
+async def begin_bug_report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+    return await begin_bug_report(update, context)
+
+
+async def receive_bug_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = await ensure_user(update)
+    message = update.effective_message
+    if not message or not message.text:
+        await send_screen(update, context, tr(lang, "bug_prompt"))
+        return WAITING_FOR_BUG_REPORT
+    text = message.text.strip()
+    if text in label_values("cancel") or text in label_values("home"):
+        context.user_data.pop("bug_report_text", None)
+        return await cancel(update, context)
+    if len(text) < 5:
+        await send_screen(update, context, tr(lang, "too_short"))
+        return WAITING_FOR_BUG_REPORT
+    if len(text) > 3500:
+        await send_screen(update, context, tr(lang, "too_long"))
+        return WAITING_FOR_BUG_REPORT
+    context.user_data["bug_report_text"] = text
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("ثبت بدون تصویر" if lang == "fa" else "Submit without image", callback_data="bug:skip_photo")],
+        [InlineKeyboardButton(tr(lang, "cancel"), callback_data="user:cancel_action")],
+    ])
+    await send_screen(update, context, tr(lang, "bug_photo_prompt"), reply_markup=markup)
+    return WAITING_FOR_BUG_PHOTO
+
+
+async def finish_bug_report(update: Update, context: ContextTypes.DEFAULT_TYPE, image_file_id: Optional[str] = None):
+    user = update.effective_user
+    lang = await ensure_user(update)
+    text = context.user_data.get("bug_report_text", "").strip()
+    if not user or len(text) < 5:
+        context.user_data.pop("bug_report_text", None)
+        await send_screen(update, context, tr(lang, "cancelled"), reply_markup=home_markup(user.id, lang) if user else None)
+        return ConversationHandler.END
+    category = "گزارش باگ یا پیشنهاد" if lang == "fa" else "Bug report or suggestion"
+    code = create_ticket(user, category, text, image_file_id=image_file_id)
+    context.user_data.pop("bug_report_text", None)
+    await notify_admins_new_ticket(context, code)
+    await send_screen(update, context, tr(lang, "bug_saved", code=code), reply_markup=home_markup(user.id, lang))
+    return ConversationHandler.END
+
+
+async def receive_bug_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message or not message.photo:
+        lang = await ensure_user(update)
+        await send_screen(update, context, tr(lang, "bug_photo_prompt"))
+        return WAITING_FOR_BUG_PHOTO
+    return await finish_bug_report(update, context, image_file_id=message.photo[-1].file_id)
+
+
+async def skip_bug_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+    return await finish_bug_report(update, context)
+
+
+async def cancel_bug_report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+    context.user_data.pop("bug_report_text", None)
+    context.user_data.pop("pending_user_action", None)
+    user = update.effective_user
+    lang = get_language(user.id) if user else "fa"
+    if query:
+        await query.edit_message_text(tr(lang, "cancelled"), reply_markup=main_inline_keyboard(lang, is_admin(user.id) if user else False))
+    return ConversationHandler.END
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +838,10 @@ async def route_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await begin_tracking(update, context)
     if text in label_values("support"):
         return await begin_support(update, context)
+    if text in label_values("bug_report"):
+        return await begin_bug_report(update, context)
+    if text in label_values("socials"):
+        return await show_socials(update, context)
     if text in label_values("my_tickets"):
         return await begin_my_tickets(update, context)
     if text in label_values("rate"):
@@ -740,6 +856,25 @@ async def route_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await begin_menu_mode(update, context)
     if text in label_values("admin_menu"):
         await admin_home(update, context); return ConversationHandler.END
+    return ConversationHandler.END
+
+
+async def show_socials(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show official APEX/GLADIATOR links using Telegram's native URL buttons."""
+    lang = await ensure_user(update)
+    rows = [
+        [InlineKeyboardButton("🌐 APEX Website", url="https://apex-app.ir")],
+        [InlineKeyboardButton("▶️ YouTube", url="https://www.youtube.com/@Apex_app_ir")],
+        [InlineKeyboardButton("📸 Instagram", url="https://www.instagram.com/apex_app_ir?stkn=Y3VxaHVrNzIyOWts")],
+        [InlineKeyboardButton("🎧 پشتیبانی سایت / Website Support", url="https://t.me/GladiatorHelpBot")],
+    ]
+    if get_menu_mode(update.effective_user.id) == "inline":
+        rows.append([InlineKeyboardButton(tr(lang, "home"), callback_data="user:home")])
+        markup = InlineKeyboardMarkup(rows)
+    else:
+        rows.append([InlineKeyboardButton(tr(lang, "home"), callback_data="user:home")])
+        markup = InlineKeyboardMarkup(rows)
+    await send_screen(update, context, tr(lang, "socials_text"), reply_markup=markup)
     return ConversationHandler.END
 
 
@@ -775,10 +910,17 @@ async def notify_admins_new_ticket(context: ContextTypes.DEFAULT_TYPE, code: str
         f'📂 موضوع: {ticket["category"]}\n\n'
         f'📝 متن درخواست:\n{(ticket["message"] or "—")[:2500]}'
     )
+    if ticket["category"] in ("گزارش باگ یا پیشنهاد", "Bug report or suggestion"):
+        text += "\n\n#Bug_Report"
     markup = InlineKeyboardMarkup([[InlineKeyboardButton("✍️ مشاهده و پاسخ", callback_data=f'admin:ticket:{ticket["ticket_code"]}')]])
     for admin_id in sorted(ADMIN_CHAT_IDS):
         try:
             await context.bot.send_message(chat_id=admin_id, text=text[:3900], reply_markup=markup)
+            if ticket["image_file_id"]:
+                await context.bot.send_photo(
+                    chat_id=admin_id, photo=ticket["image_file_id"],
+                    caption=f"{T[get_language(ticket['user_id'])]['bug_admin_tag']} · 🎫 {ticket['ticket_code']}"
+                )
         except TelegramError:
             logger.exception("Could not notify administrator %s about ticket %s", admin_id, code)
 
@@ -952,6 +1094,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         context.user_data.pop("pending_user_action", None)
         context.user_data.pop("ticket_category", None)
+        context.user_data.pop("bug_report_text", None)
         await query.edit_message_text(tr(lang, "cancelled"), reply_markup=main_inline_keyboard(lang, is_admin(user.id)))
         return
 
@@ -1006,6 +1149,17 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_language(user.id, new_lang)
         await query.answer()
         await query.edit_message_text(tr(new_lang, "start", name=user.first_name or ""), reply_markup=main_inline_keyboard(new_lang, is_admin(user.id)))
+        return
+    if data == "user:socials":
+        await query.answer()
+        rows = [
+            [InlineKeyboardButton("🌐 APEX Website", url="https://apex-app.ir")],
+            [InlineKeyboardButton("▶️ YouTube", url="https://www.youtube.com/@Apex_app_ir")],
+            [InlineKeyboardButton("📸 Instagram", url="https://www.instagram.com/apex_app_ir?stkn=Y3VxaHVrNzIyOWts")],
+            [InlineKeyboardButton("🎧 پشتیبانی سایت / Website Support", url="https://t.me/GladiatorHelpBot")],
+            [InlineKeyboardButton(tr(lang, "home"), callback_data="user:home")],
+        ]
+        await query.edit_message_text(tr(lang, "socials_text"), reply_markup=InlineKeyboardMarkup(rows), disable_web_page_preview=True)
         return
     if data == "user:faq":
         await query.answer()
@@ -1156,13 +1310,17 @@ def main():
     # Keyboard-mode conversation flow for users.
     user_conversation = ConversationHandler(
         entry_points=[
+            CallbackQueryHandler(begin_bug_report_callback, pattern=r"^user:bug_report$"),
             MessageHandler(label_filter("register"), begin_request),
             MessageHandler(label_filter("track"), begin_tracking),
             MessageHandler(label_filter("support"), begin_support),
+            MessageHandler(label_filter("bug_report"), begin_bug_report),
             MessageHandler(label_filter("my_tickets"), begin_my_tickets),
             MessageHandler(label_filter("rate"), begin_rating),
         ],
         states={
+            WAITING_FOR_BUG_REPORT: [CallbackQueryHandler(cancel_bug_report_callback, pattern=r"^user:cancel_action$"), MessageHandler(any_menu_label_filter(), route_menu_button), MessageHandler(filters.TEXT & ~filters.COMMAND, receive_bug_description)],
+            WAITING_FOR_BUG_PHOTO: [CallbackQueryHandler(skip_bug_photo, pattern=r"^bug:skip_photo$"), CallbackQueryHandler(cancel_bug_report_callback, pattern=r"^user:cancel_action$"), MessageHandler(filters.PHOTO, receive_bug_photo), MessageHandler(any_menu_label_filter(), route_menu_button), MessageHandler(filters.TEXT & ~filters.COMMAND, receive_bug_photo)],
             WAITING_FOR_REQUEST: [MessageHandler(any_menu_label_filter(), route_menu_button), MessageHandler(filters.TEXT & ~filters.COMMAND, save_request)],
             WAITING_FOR_TICKET_CODE: [MessageHandler(any_menu_label_filter(), route_menu_button), MessageHandler(filters.TEXT & ~filters.COMMAND, track_ticket)],
             WAITING_FOR_SUPPORT_MESSAGE: [MessageHandler(any_menu_label_filter(), route_menu_button), MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_message)],
